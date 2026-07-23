@@ -4,22 +4,24 @@
     "name": "nmhjklnm"
   },
   "metadata": {
-    "description": "AutoLibrary — auto-load curated knowledge into every agent session.",
+    "description": "AutoLibrary — the library layer every coding agent installs.",
     "version": "0.1.0"
   },
   "plugins": [
     {
       "name": "auto-library",
-      "description": "Auto-load curated knowledge into every agent session. A SessionStart hook injects each enabled Volume's compact index into context; toggle Volumes per machine via a config file, no settings.json editing.",
+      "description": "The library layer every coding agent installs. Register anything as a Volume; a SessionStart hook loads each enabled Volume's compact index into every session — Skills is just one Volume of it. Toggle Volumes per machine via a config file, no settings.json editing.",
       "version": "0.1.0",
       "author": {
         "name": "nmhjklnm"
       },
       "keywords": [
+        "agent",
+        "library",
         "context",
-        "knowledge-base",
         "sessionstart",
-        "hook"
+        "hook",
+        "codex"
       ],
       "source": "./"
     }

@@ -1,64 +1,50 @@
+<p align="center">
+  <img src="./assets/readme/hero.gif" width="100%"
+       alt="AutoLibrary — the library layer every coding agent installs. Skills is just one Volume of it. A session-start hook loads every Volume's compact index into every session, on Claude Code and Codex.">
+</p>
+
 <div align="center">
 
-# AutoLibrary
+**The library layer every coding agent installs.**
 
-**Give your coding agent a memory it actually reads — every session, automatically.**
-
-You curate the knowledge once. AutoLibrary loads a compact index of it into the
-agent's context at the start of every session, so the agent always knows *what
-you know and where to find it* — without you pasting anything, and without
-bloating every prompt.
+Register anything as a **Volume** — Skills, capabilities, context, playbooks.
+A session-start hook loads each Volume's compact index into every session, so the
+agent starts already knowing what it has and where to find it.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
 ![Host: Claude Code](https://img.shields.io/badge/host-Claude%20Code-black)
 ![Host: Codex CLI](https://img.shields.io/badge/host-Codex%20CLI-black)
-![Zero config to start](https://img.shields.io/badge/setup-two%20commands-black)
+![Install: two commands](https://img.shields.io/badge/install-two%20commands-black)
 
 </div>
 
 ---
 
-## The problem
-
-Your agent is brilliant and amnesiac. It re-derives things you already wrote
-down — your infra quirks, device setup, API playbooks, project decisions —
-because it never sees your notes unless it goes digging. The usual fix, dumping
-everything into `CLAUDE.md` / `AGENTS.md`, taxes *every* prompt and still goes
-stale.
-
 ## The idea
 
-Keep your knowledge as normal notes on disk. AutoLibrary injects only a **compact
-index** — one terse line per topic — at session start. The agent sees the map;
-it reads the territory (full docs) only when a task needs it.
+Programs don't re-derive the standard library — they `import` it. Your agent should too.
 
-```mermaid
-flowchart LR
-    subgraph LIB["Your Library (on disk)"]
-        direction TB
-        V1["Volume: capability<br/><i>capability.md</i>"]
-        V2["Volume: devices<br/><i>devices.md</i>"]
-        V3["Volume: ideas<br/><i>disabled on this machine</i>"]
-    end
-    LIB -->|SessionStart hook| CTX["compact indexes<br/>injected as context"]
-    CTX --> H1["Claude Code"]
-    CTX --> H2["Codex CLI"]
-    CTX --> H3["…any agent with a<br/>session-start hook"]
-```
+AutoLibrary turns anything you keep on disk — a folder of Skills, your API playbooks,
+device setup, project context, whatever — into an installable **Volume**. At the start
+of every session, a hook loads a **compact index** of each enabled Volume into the
+agent's context. The agent sees the map up front; it opens the full material only when a
+task actually needs it.
 
-It's **not a plugin for one tool** — it's a knowledge layer for *agents*. Any
-agent host with a session-start hook can load the same Library. Claude Code and
-Codex CLI ship today; the loader is host-agnostic.
+**Skills is just one Volume of it.** So is everything else you want every session to
+start with. AutoLibrary doesn't care what's inside a Volume — it's the layer that loads
+your Volumes into any agent, the same way every session.
 
-## Why it gets powerful
+## Not a plugin for one tool — a primitive for every agent
 
-The magic is extensibility. A **Library** is just a set of **Volumes**, and a
-Volume is just a folder with an index. So you can:
-
-- **Grow without limit** — add a Volume by adding one line; it costs nothing until enabled.
-- **Shape per machine** — your laptop and your server load different Volumes from the *same* Library.
-- **Stay cheap** — the hook fires once per session and the index is prompt-cached; caps bound its size.
-- **Keep it yours** — plain Markdown notes, no lock-in, no database.
+- **Every agent installs it.** Claude Code and Codex CLI ship today; the loader is
+  host-agnostic, so anything with a session-start hook can load the same Library.
+- **Register anything.** A Volume is just a folder with an index named after it. Skills,
+  capabilities, context, references — AutoLibrary stays agnostic about the contents.
+- **Grow without limit.** Add a Volume by adding one line; it costs nothing until enabled.
+- **Shape per machine.** Your laptop and your server load different Volumes from the
+  *same* Library.
+- **Stay cheap.** The hook fires once per session and the index is prompt-cached; caps
+  bound its size.
 
 ## Install
 
@@ -91,37 +77,37 @@ Point AutoLibrary at your Volumes with a JSON config, at any of (first found win
   "per_volume_char_cap": 1500,
   "total_char_cap": 8000,
   "volumes": [
-    { "name": "capability", "path": "/absolute/path/to/capabilities", "enabled": true },
-    { "name": "workspace",  "path": "/absolute/path/to/workspace",    "enabled": false }
+    { "name": "capabilities", "path": "/absolute/path/to/capabilities", "enabled": true },
+    { "name": "skills",       "path": "/absolute/path/to/skills",       "enabled": true },
+    { "name": "devices",      "path": "/absolute/path/to/devices",      "enabled": false }
   ]
 }
 ```
 
 - Register a Volume by `name` + `path`. Its index file is `<path>/<name>.md` —
-  named after the Volume (`workspace` → `workspace.md`), not a generic `INDEX.md`.
+  named after the Volume (`skills` → `skills.md`), not a generic `INDEX.md`.
 - Flip `enabled` to load/unload per machine. Char caps keep the injection small.
 
 ## The model: Library ⊃ Volume ⊃ Entry
 
 | Term | What it is | On disk |
 |---|---|---|
-| **Library** | your whole knowledge set for an agent | — |
-| **Volume** | one knowledge domain | a folder, e.g. `capabilities/` |
-| **Entry** | one topic in a Volume | a folder, e.g. `capabilities/scholar-search/` |
-| **`<name>.md`** | a Volume's compact index, named after it | injected at session start |
+| **Library** | every Volume an agent loads | — |
+| **Volume** | one module you register | a folder, e.g. `capabilities/` |
+| **Entry** | one item in a Volume | a folder, e.g. `capabilities/scholar-search/` |
+| **`<name>.md`** | the Volume's compact index, named after it | injected at session start |
 
 Only each Volume's `<name>.md` (one terse line per Entry) enters the context; the
-Entries — full docs, assets — stay on disk and are read on demand.
+Entries — full material, assets — stay on disk and are read on demand.
 
 ## For agents (self-configuration)
 
-> AutoLibrary is a knowledge-injection tool for coding agents: a session-start
-> hook injects each enabled Volume's `<name>.md` index into context. To
-> configure it, edit the JSON at `$AUTOLIBRARY_CONFIG`,
-> `$CLAUDE_CONFIG_DIR/autolibrary.json`, or `~/.claude/autolibrary.json` —
-> `volumes` is a list of `{name, path, enabled}`, and each Volume's index is
-> `<path>/<name>.md`. Add a Volume → add an entry; toggle `enabled` per machine.
-> The change takes effect on the next session; no restart needed.
+> AutoLibrary is the library layer for coding agents: a session-start hook injects each
+> enabled Volume's `<name>.md` index into context. To configure it, edit the JSON at
+> `$AUTOLIBRARY_CONFIG`, `$CLAUDE_CONFIG_DIR/autolibrary.json`, or
+> `~/.claude/autolibrary.json` — `volumes` is a list of `{name, path, enabled}`, and each
+> Volume's index is `<path>/<name>.md`. Add a Volume → add an entry; toggle `enabled` per
+> machine. The change takes effect on the next session; no restart needed.
 
 An agent can read that one paragraph and configure AutoLibrary with no other docs.
 
