@@ -15,12 +15,28 @@ Toggle what loads **per machine** — no `settings.json` editing, no code change
 | Term | What it is | On disk |
 |---|---|---|
 | **Library** | the whole system (this plugin) | — |
-| **Volume** | one knowledge domain | a directory, e.g. `capabilities/` |
+| **Volume** | one knowledge domain | a folder, e.g. `capabilities/` |
 | **Entry** | one topic in a Volume | a folder, e.g. `capabilities/scholar-search/` |
-| **INDEX.md** | a Volume's compact table of contents | injected at session start |
+| **`<name>.md`** | a Volume's compact index, named after the Volume | injected at session start |
 
-Only each Volume's `INDEX.md` (one terse line per Entry) enters the context.
-The Entries themselves — full docs, assets — stay on disk and are read on demand.
+The injected file is named after the Volume, not a generic `INDEX.md`: a Volume
+named `workspace` has `workspace.md`, a Volume named `capability` has
+`capability.md`. Only that one file (one terse line per Entry) enters the
+context; the Entries themselves — full docs, assets — stay on disk and are read
+on demand.
+
+## For agents (self-configuration)
+
+> AutoLibrary is a Claude Code plugin whose SessionStart hook injects each
+> enabled Volume's `<name>.md` index into context. To configure it, edit the
+> JSON at `$AUTOLIBRARY_CONFIG` / `$CLAUDE_CONFIG_DIR/autolibrary.json` /
+> `~/.claude/autolibrary.json`: `volumes` is a list of `{name, path, enabled}`.
+> Each Volume is a folder; its index is `<path>/<name>.md`. Add a Volume → add
+> an entry; enable/disable per machine with `enabled`. No restart of the hook
+> needed — it re-reads on the next session.
+
+That paragraph is ~80 tokens and self-contained: an agent can read it and edit
+the config without any other docs.
 
 ## Install
 

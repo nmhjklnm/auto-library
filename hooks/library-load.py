@@ -7,24 +7,26 @@ compact INDEX of each *enabled* Volume into the session context via
 context small; the full detail stays on disk in each Volume's Entries.
 
 Model: Library ⊃ Volume ⊃ Entry
-  - Library  = the whole system (this plugin)
-  - Volume   = one knowledge domain (a directory), e.g. "capabilities"
-  - Entry    = one topic inside a Volume (a folder)
-  - INDEX.md = the compact, injected table of contents for a Volume
+  - Library      = the whole system (this plugin)
+  - Volume       = one knowledge domain (a folder), e.g. "capabilities"
+  - Entry        = one topic inside a Volume (a folder)
+  - <name>.md    = the compact, injected index of a Volume, named after it
+                   (a Volume named "workspace" → workspace.md, not INDEX.md)
 
 Config lookup order (first found wins), so different machines load different
 Volumes just by shipping a different config file — no code changes:
   1. $AUTOLIBRARY_CONFIG
-  2. $CLAUDE_PROJECT_DIR/.claude/autolibrary.json
+  2. $CLAUDE_CONFIG_DIR/autolibrary.json
   3. ~/.claude/autolibrary.json
 
-Config shape:
+Config shape — register each Volume by name + its folder; the index loaded is
+<path>/<name>.md (an explicit "index" path overrides this):
   {
     "per_volume_char_cap": 1500,   // optional, default 1500
     "total_char_cap": 8000,        // optional, default 8000
     "volumes": [
-      {"name": "capabilities", "index": "/abs/path/INDEX.md", "enabled": true},
-      {"name": "devices",      "index": "/abs/path/INDEX.md", "enabled": false}
+      {"name": "capability", "path": "/abs/capabilities", "enabled": true},
+      {"name": "workspace",  "path": "/abs/workspace",    "enabled": false}
     ]
   }
 
@@ -70,11 +72,17 @@ def build_context(conf):
     for vol in conf.get("volumes", []):
         if not vol.get("enabled"):
             continue
+        name = vol.get("name", "?")
+        # Index file is named after the Volume: <path>/<name>.md (not a generic
+        # INDEX.md). An explicit "index" overrides this if given.
+        index_path = vol.get("index")
+        if not index_path and vol.get("path"):
+            index_path = os.path.join(vol["path"], name + ".md")
         try:
-            with open(vol["index"], encoding="utf-8") as f:
+            with open(index_path, encoding="utf-8") as f:
                 body = f.read().rstrip()
         except Exception:
-            body = f"# [{vol.get('name', '?')}] Volume index missing: {vol.get('index')}"
+            body = f"# [{name}] Volume index missing: {index_path}"
         body = clip(body, per_cap)
         if total_cap and used + len(body) > total_cap:
             remaining = total_cap - used
