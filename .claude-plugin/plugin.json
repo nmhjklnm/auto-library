@@ -1,0 +1,19 @@
+{
+  "name": "auto-library",
+  "version": "0.1.0",
+  "description": "Auto-load curated knowledge into every Claude Code session. A Library holds Volumes (knowledge domains); each Volume's compact index is injected at session start via a SessionStart hook. Toggle Volumes per machine — no settings.json editing.",
+  "author": {
+    "name": "nmhjklnm"
+  },
+  "license": "MIT",
+  "keywords": [
+    "context",
+    "memory",
+    "knowledge-base",
+    "sessionstart",
+    "hook",
+    "injection"
+  ],
+  "homepage": "https://github.com/nmhjklnm/auto-library",
+  "repository": "https://github.com/nmhjklnm/auto-library"
+}

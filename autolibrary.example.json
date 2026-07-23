@@ -1,0 +1,9 @@
+{
+  "per_volume_char_cap": 1500,
+  "total_char_cap": 8000,
+  "volumes": [
+    { "name": "capabilities", "index": "/absolute/path/to/capabilities/INDEX.md", "enabled": true },
+    { "name": "devices",      "index": "/absolute/path/to/devices/INDEX.md",      "enabled": true },
+    { "name": "ideas",        "index": "/absolute/path/to/ideas/INDEX.md",        "enabled": false }
+  ]
+}

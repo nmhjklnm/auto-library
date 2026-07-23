@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""AutoLibrary — SessionStart loader.
+
+Reads a per-machine config listing the Library's Volumes, and injects the
+compact INDEX of each *enabled* Volume into the session context via
+`hookSpecificOutput.additionalContext`. Character caps keep the injected
+context small; the full detail stays on disk in each Volume's Entries.
+
+Model: Library ⊃ Volume ⊃ Entry
+  - Library  = the whole system (this plugin)
+  - Volume   = one knowledge domain (a directory), e.g. "capabilities"
+  - Entry    = one topic inside a Volume (a folder)
+  - INDEX.md = the compact, injected table of contents for a Volume
+
+Config lookup order (first found wins), so different machines load different
+Volumes just by shipping a different config file — no code changes:
+  1. $AUTOLIBRARY_CONFIG
+  2. $CLAUDE_PROJECT_DIR/.claude/autolibrary.json
+  3. ~/.claude/autolibrary.json
+
+Config shape:
+  {
+    "per_volume_char_cap": 1500,   // optional, default 1500
+    "total_char_cap": 8000,        // optional, default 8000
+    "volumes": [
+      {"name": "capabilities", "index": "/abs/path/INDEX.md", "enabled": true},
+      {"name": "devices",      "index": "/abs/path/INDEX.md", "enabled": false}
+    ]
+  }
+
+Fail-safe: any error (missing/broken config, unreadable index) degrades to an
+empty injection rather than breaking the session.
+"""
+import json
+import os
+import sys
+
+
+def find_config():
+    """Locate the config from USER-controlled, machine-global locations only.
+
+    Deliberately does NOT read a per-project config (e.g. $CLAUDE_PROJECT_DIR):
+    the hook runs globally with no per-project trust gate, so honoring a config
+    shipped inside a cloned repo would let that repo point `index` at arbitrary
+    files (~/.ssh/id_rsa, .env, …) and exfiltrate them into the model context,
+    or inject attacker-controlled prose as trusted context. Config lives with
+    the user, never with the project.
+    """
+    candidates = [os.environ.get("AUTOLIBRARY_CONFIG")]
+    cfg_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    if cfg_dir:
+        candidates.append(os.path.join(cfg_dir, "autolibrary.json"))
+    candidates.append(os.path.expanduser("~/.claude/autolibrary.json"))
+    for c in candidates:
+        if c and os.path.isfile(c):
+            return c
+    return None
+
+
+def clip(text, cap):
+    if cap and len(text) > cap:
+        return text[:cap].rstrip() + f"\n…[truncated {len(text)}→{cap} chars]"
+    return text
+
+
+def build_context(conf):
+    per_cap = conf.get("per_volume_char_cap", 1500)
+    total_cap = conf.get("total_char_cap", 8000)
+    parts, used = [], 0
+    for vol in conf.get("volumes", []):
+        if not vol.get("enabled"):
+            continue
+        try:
+            with open(vol["index"], encoding="utf-8") as f:
+                body = f.read().rstrip()
+        except Exception:
+            body = f"# [{vol.get('name', '?')}] Volume index missing: {vol.get('index')}"
+        body = clip(body, per_cap)
+        if total_cap and used + len(body) > total_cap:
+            remaining = total_cap - used
+            if remaining > 0:
+                parts.append(clip(body, remaining))
+            parts.append(f"\n…[AutoLibrary total cap {total_cap} reached; remaining Volumes not loaded]")
+            break
+        parts.append(body)
+        used += len(body)
+    return "\n\n".join(parts)
+
+
+def main():
+
+    # Consume (and ignore) the hook's stdin payload.
+    try:
+        json.load(sys.stdin)
+    except Exception:
+        pass
+
+    ctx = ""
+    path = find_config()
+    if path:
+        try:
+            with open(path, encoding="utf-8") as f:
+                ctx = build_context(json.load(f))
+        except Exception:
+            ctx = ""
+
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": ctx,
+        }
+    }, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

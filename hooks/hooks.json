@@ -1,0 +1,17 @@
+{
+  "description": "AutoLibrary: inject each enabled Volume's compact index into the session at start.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/library-load.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
