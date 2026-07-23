@@ -1,116 +1,130 @@
+<div align="center">
+
 # AutoLibrary
 
-**Auto-load curated knowledge into every Claude Code — or Codex CLI — session.**
+**Give your coding agent a memory it actually reads — every session, automatically.**
 
-You keep hand-written notes — how your infra works, your device setup, project
-context, API playbooks. But Claude Code doesn't see them unless it goes looking,
-and pasting them into `CLAUDE.md` bloats every session. AutoLibrary injects a
-**compact index** of your knowledge at session start, so the model always knows
-*what exists and where*, then reads the full detail only when it needs to.
+You curate the knowledge once. AutoLibrary loads a compact index of it into the
+agent's context at the start of every session, so the agent always knows *what
+you know and where to find it* — without you pasting anything, and without
+bloating every prompt.
 
-Toggle what loads **per machine** — no `settings.json` editing, no code changes.
+[![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
+![Host: Claude Code](https://img.shields.io/badge/host-Claude%20Code-black)
+![Host: Codex CLI](https://img.shields.io/badge/host-Codex%20CLI-black)
+![Zero config to start](https://img.shields.io/badge/setup-two%20commands-black)
 
-## The model: Library ⊃ Volume ⊃ Entry
+</div>
 
-| Term | What it is | On disk |
-|---|---|---|
-| **Library** | the whole system (this plugin) | — |
-| **Volume** | one knowledge domain | a folder, e.g. `capabilities/` |
-| **Entry** | one topic in a Volume | a folder, e.g. `capabilities/scholar-search/` |
-| **`<name>.md`** | a Volume's compact index, named after the Volume | injected at session start |
+---
 
-The injected file is named after the Volume, not a generic `INDEX.md`: a Volume
-named `workspace` has `workspace.md`, a Volume named `capability` has
-`capability.md`. Only that one file (one terse line per Entry) enters the
-context; the Entries themselves — full docs, assets — stay on disk and are read
-on demand.
+## The problem
 
-## For agents (self-configuration)
+Your agent is brilliant and amnesiac. It re-derives things you already wrote
+down — your infra quirks, device setup, API playbooks, project decisions —
+because it never sees your notes unless it goes digging. The usual fix, dumping
+everything into `CLAUDE.md` / `AGENTS.md`, taxes *every* prompt and still goes
+stale.
 
-> AutoLibrary is a Claude Code plugin whose SessionStart hook injects each
-> enabled Volume's `<name>.md` index into context. To configure it, edit the
-> JSON at `$AUTOLIBRARY_CONFIG` / `$CLAUDE_CONFIG_DIR/autolibrary.json` /
-> `~/.claude/autolibrary.json`: `volumes` is a list of `{name, path, enabled}`.
-> Each Volume is a folder; its index is `<path>/<name>.md`. Add a Volume → add
-> an entry; enable/disable per machine with `enabled`. No restart of the hook
-> needed — it re-reads on the next session.
+## The idea
 
-That paragraph is ~80 tokens and self-contained: an agent can read it and edit
-the config without any other docs.
+Keep your knowledge as normal notes on disk. AutoLibrary injects only a **compact
+index** — one terse line per topic — at session start. The agent sees the map;
+it reads the territory (full docs) only when a task needs it.
+
+```mermaid
+flowchart LR
+    subgraph LIB["Your Library (on disk)"]
+        direction TB
+        V1["Volume: capability<br/><i>capability.md</i>"]
+        V2["Volume: devices<br/><i>devices.md</i>"]
+        V3["Volume: ideas<br/><i>disabled on this machine</i>"]
+    end
+    LIB -->|SessionStart hook| CTX["compact indexes<br/>injected as context"]
+    CTX --> H1["Claude Code"]
+    CTX --> H2["Codex CLI"]
+    CTX --> H3["…any agent with a<br/>session-start hook"]
+```
+
+It's **not a plugin for one tool** — it's a knowledge layer for *agents*. Any
+agent host with a session-start hook can load the same Library. Claude Code and
+Codex CLI ship today; the loader is host-agnostic.
+
+## Why it gets powerful
+
+The magic is extensibility. A **Library** is just a set of **Volumes**, and a
+Volume is just a folder with an index. So you can:
+
+- **Grow without limit** — add a Volume by adding one line; it costs nothing until enabled.
+- **Shape per machine** — your laptop and your server load different Volumes from the *same* Library.
+- **Stay cheap** — the hook fires once per session and the index is prompt-cached; caps bound its size.
+- **Keep it yours** — plain Markdown notes, no lock-in, no database.
 
 ## Install
 
-This repo is a plugin **and** its own marketplace. In Claude Code:
+### Claude Code
+
+This repo is a plugin **and** its own marketplace:
 
 ```
 /plugin marketplace add nmhjklnm/auto-library
 /plugin install auto-library@auto-library
 ```
 
-That's it — the bundled `SessionStart` hook registers itself. You never edit
-`settings.json`.
+The bundled `SessionStart` hook self-registers — you never touch `settings.json`.
+Try it first, no install: `claude --plugin-dir /path/to/auto-library`.
 
-**Try it without installing** (this session only):
+### Codex CLI
 
-```bash
-claude --plugin-dir /path/to/auto-library
-```
-
-**Uninstall**: `/plugin uninstall auto-library@auto-library`
-
-**On Codex CLI**: the same loader works there via a `SessionStart` hook in
-`config.toml` — see [`codex/README.md`](codex/README.md). Same config file, same
-Volumes, same behavior.
+Add a `SessionStart` hook to `~/.codex/config.toml` — see
+[`codex/README.md`](codex/README.md). Same loader, same config, same behavior.
 
 ## Configure
 
-Point AutoLibrary at your Volumes. Create a config at any of these (first found
-wins) — `$AUTOLIBRARY_CONFIG`, `$CLAUDE_CONFIG_DIR/autolibrary.json`, or
-`~/.claude/autolibrary.json`. See `autolibrary.example.json`:
+Point AutoLibrary at your Volumes with a JSON config, at any of (first found wins):
+`$AUTOLIBRARY_CONFIG`, `$CLAUDE_CONFIG_DIR/autolibrary.json`,
+`$CODEX_HOME/autolibrary.json`, or `~/.claude/autolibrary.json`. See
+[`autolibrary.example.json`](autolibrary.example.json):
 
 ```json
 {
   "per_volume_char_cap": 1500,
   "total_char_cap": 8000,
   "volumes": [
-    { "name": "capabilities", "index": "/path/to/capabilities/INDEX.md", "enabled": true },
-    { "name": "devices",      "index": "/path/to/devices/INDEX.md",      "enabled": false }
+    { "name": "capability", "path": "/absolute/path/to/capabilities", "enabled": true },
+    { "name": "workspace",  "path": "/absolute/path/to/workspace",    "enabled": false }
   ]
 }
 ```
 
-- Add a Volume → add a line. Disable one on this machine → `"enabled": false`.
-- The config is per-machine: a different file on each host loads a different set.
-- Char caps bound the injected size, so a runaway INDEX can't blow up context.
+- Register a Volume by `name` + `path`. Its index file is `<path>/<name>.md` —
+  named after the Volume (`workspace` → `workspace.md`), not a generic `INDEX.md`.
+- Flip `enabled` to load/unload per machine. Char caps keep the injection small.
 
-## Why it's cheap
+## The model: Library ⊃ Volume ⊃ Entry
 
-The hook fires **once per session** (SessionStart), and the injected index is
-held in the model's prompt cache for the rest of the session — so the cost is a
-small, capped, one-time write per session, not a per-turn tax. Keep each
-`INDEX.md` terse (one line per Entry) and the whole thing stays lightweight.
+| Term | What it is | On disk |
+|---|---|---|
+| **Library** | your whole knowledge set for an agent | — |
+| **Volume** | one knowledge domain | a folder, e.g. `capabilities/` |
+| **Entry** | one topic in a Volume | a folder, e.g. `capabilities/scholar-search/` |
+| **`<name>.md`** | a Volume's compact index, named after it | injected at session start |
 
-## Writing a Volume
+Only each Volume's `<name>.md` (one terse line per Entry) enters the context; the
+Entries — full docs, assets — stay on disk and are read on demand.
 
-A Volume is just a directory with an `INDEX.md` and one folder per Entry:
+## For agents (self-configuration)
 
-```
-capabilities/
-├── INDEX.md                 # compact: one line per Entry (this is what's injected)
-├── scholar-search/          # an Entry
-│   └── README.md            # full detail (read on demand)
-└── community-comment-apis/
-    └── README.md
-```
+> AutoLibrary is a knowledge-injection tool for coding agents: a session-start
+> hook injects each enabled Volume's `<name>.md` index into context. To
+> configure it, edit the JSON at `$AUTOLIBRARY_CONFIG`,
+> `$CLAUDE_CONFIG_DIR/autolibrary.json`, or `~/.claude/autolibrary.json` —
+> `volumes` is a list of `{name, path, enabled}`, and each Volume's index is
+> `<path>/<name>.md`. Add a Volume → add an entry; toggle `enabled` per machine.
+> The change takes effect on the next session; no restart needed.
 
-`INDEX.md` should be scannable and terse:
-
-```markdown
-# capabilities
-- scholar-search — academic search over OpenAlex + arXiv, no API key
-- community-comment-apis — pull comment threads from 9 platforms, no login
-```
+An agent can read that one paragraph and configure AutoLibrary with no other docs.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
