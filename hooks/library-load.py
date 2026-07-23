@@ -33,6 +33,7 @@ Config shape — register each Volume by name + its folder; the index loaded is
 Fail-safe: any error (missing/broken config, unreadable index) degrades to an
 empty injection rather than breaking the session.
 """
+import datetime
 import json
 import os
 import sys
@@ -94,7 +95,21 @@ def build_context(conf):
             break
         parts.append(body)
         used += len(body)
-    return "\n\n".join(parts)
+    body_text = "\n\n".join(parts)
+    if not body_text:
+        return ""
+    # Time-sensitivity is a first-class Library principle: anchor the agent in
+    # "now" and warn that a static index goes stale silently.
+    today = datetime.date.today().isoformat()
+    header = (
+        f"[AutoLibrary · today is {today}] This Library is time-sensitive. Each "
+        "entry notes when it was created/added and, where it applies, when it "
+        "expires or was last verified. Treat undated or long-stale entries as "
+        "possibly out of date — a machine past its expiry may be gone, a 'LIVE' "
+        "date may have aged; re-verify before relying. When you add or change an "
+        "entry, record the date."
+    )
+    return header + "\n\n" + body_text
 
 
 def main():

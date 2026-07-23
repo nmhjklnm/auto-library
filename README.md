@@ -45,6 +45,10 @@ your Volumes into any agent, the same way every session.
   *same* Library.
 - **Stay cheap.** The hook fires once per session and the index is prompt-cached; caps
   bound its size.
+- **Time-aware.** A static index goes stale silently, and agents are time-blind. The
+  loader stamps every injection with today's date and reminds the agent that entries are
+  time-sensitive — so record `created` / `expires` / `last-verified`, and a machine past
+  its expiry or an aged "LIVE" date gets caught instead of trusted.
 
 ## Install
 
@@ -107,7 +111,9 @@ Entries — full material, assets — stay on disk and are read on demand.
 > `$AUTOLIBRARY_CONFIG`, `$CLAUDE_CONFIG_DIR/autolibrary.json`, or
 > `~/.claude/autolibrary.json` — `volumes` is a list of `{name, path, enabled}`, and each
 > Volume's index is `<path>/<name>.md`. Add a Volume → add an entry; toggle `enabled` per
-> machine. The change takes effect on the next session; no restart needed.
+> machine. The change takes effect on the next session; no restart needed. Entries are
+> time-sensitive: record when each was created/added and when it expires or was last
+> verified, so stale or expired entries are caught rather than trusted.
 
 An agent can read that one paragraph and configure AutoLibrary with no other docs.
 
