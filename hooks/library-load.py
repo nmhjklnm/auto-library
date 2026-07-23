@@ -49,10 +49,12 @@ def find_config():
     the user, never with the project.
     """
     candidates = [os.environ.get("AUTOLIBRARY_CONFIG")]
-    cfg_dir = os.environ.get("CLAUDE_CONFIG_DIR")
-    if cfg_dir:
-        candidates.append(os.path.join(cfg_dir, "autolibrary.json"))
+    for env_dir in ("CLAUDE_CONFIG_DIR", "CODEX_HOME"):
+        d = os.environ.get(env_dir)
+        if d:
+            candidates.append(os.path.join(d, "autolibrary.json"))
     candidates.append(os.path.expanduser("~/.claude/autolibrary.json"))
+    candidates.append(os.path.expanduser("~/.codex/autolibrary.json"))
     for c in candidates:
         if c and os.path.isfile(c):
             return c
@@ -96,6 +98,9 @@ def build_context(conf):
 
 
 def main():
+    # Host mode: "claude" (default) emits the Claude Code hook JSON envelope;
+    # "codex" emits plain text on stdout — both inject it as SessionStart context.
+    host = sys.argv[1].lower() if len(sys.argv) > 1 else "claude"
 
     # Consume (and ignore) the hook's stdin payload.
     try:
@@ -112,12 +117,16 @@ def main():
         except Exception:
             ctx = ""
 
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "SessionStart",
-            "additionalContext": ctx,
-        }
-    }, ensure_ascii=False))
+    if host == "codex":
+        # Codex SessionStart accepts plain text on stdout as additionalContext.
+        sys.stdout.write(ctx)
+    else:
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": ctx,
+            }
+        }, ensure_ascii=False))
 
 
 if __name__ == "__main__":

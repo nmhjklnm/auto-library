@@ -1,6 +1,6 @@
 # AutoLibrary
 
-**Auto-load curated knowledge into every Claude Code session.**
+**Auto-load curated knowledge into every Claude Code — or Codex CLI — session.**
 
 You keep hand-written notes — how your infra works, your device setup, project
 context, API playbooks. But Claude Code doesn't see them unless it goes looking,
@@ -57,6 +57,10 @@ claude --plugin-dir /path/to/auto-library
 ```
 
 **Uninstall**: `/plugin uninstall auto-library@auto-library`
+
+**On Codex CLI**: the same loader works there via a `SessionStart` hook in
+`config.toml` — see [`codex/README.md`](codex/README.md). Same config file, same
+Volumes, same behavior.
 
 ## Configure
 

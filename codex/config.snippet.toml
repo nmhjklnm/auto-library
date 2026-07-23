@@ -1,0 +1,14 @@
+# AutoLibrary for Codex CLI
+# Merge this into ~/.codex/config.toml (or $CODEX_HOME/config.toml).
+# Replace /ABSOLUTE/PATH/TO/auto-library with where you cloned this repo
+# (Codex has no ${CLAUDE_PLUGIN_ROOT}, so the path must be absolute).
+#
+# If you already have a [features] table, just add `hooks = true` to it rather
+# than declaring [features] twice. The [[hooks.SessionStart]] block is additive.
+
+[features]
+hooks = true
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+command = "python3 /ABSOLUTE/PATH/TO/auto-library/hooks/library-load.py codex"
