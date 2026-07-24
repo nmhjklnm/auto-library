@@ -196,43 +196,62 @@ def build_context(conf):
     return header + "\n\n" + body_text, report
 
 
-def format_summary(report, ctx):
+def palette(enabled):
+    """ANSI codes, or empty strings when color is off — so every call site can
+    interpolate unconditionally and stay readable."""
+    if not enabled:
+        return dict.fromkeys(("dim", "bold", "warn", "fill", "off"), "")
+    return {"dim": "\x1b[2m", "bold": "\x1b[1m", "warn": "\x1b[33m",
+            "fill": "\x1b[36m", "off": "\x1b[0m"}
+
+
+def format_summary(report, ctx, color=True):
     """A few lines the user actually sees: which Volumes loaded, from where.
 
     Injection is silent by design, which makes a broken Volume indistinguishable
     from a working one. Anything degraded is named on its own line rather than
     folded into a total.
     """
+    c = palette(color)
     if not report:
-        return "AutoLibrary — no Volumes loaded (check your autolibrary.json)"
+        return f"{c['bold']}AutoLibrary{c['off']} — no Volumes loaded (check your autolibrary.json)"
     name_w = max(len(r[0]) for r in report)
     ent_w = max(len(f"{r[2]}") for r in report)
-    lines = [f"AutoLibrary · {len(report)} volumes · ~{len(ctx)//4:,} tokens"]
+    lines = [f"{c['bold']}AutoLibrary{c['off']}{c['dim']} · {len(report)} volumes · "
+             f"~{len(ctx)//4:,} tokens{c['off']}"]
     last = len(report) - 1
     for i, (name, location, entries, chars, cap, status) in enumerate(report):
-        # A bar makes headroom legible at a glance — the number that matters is
-        # not how big a Volume is but how close it is to being cut off.
-        lines.append("  {stem} {name:<{nw}}  {bar}  {ent:>{ew}} entries  {loc}{warn}".format(
-            stem="└" if i == last else "├",
-            name=name, nw=name_w,
-            # A Volume that failed to load has no size worth charting — its
-            # "body" is the error message. Draw nothing rather than a bar
-            # measuring the complaint.
-            bar=bar(0, 0) if str(status).startswith(("index missing", "misconfigured"))
-                else bar(chars, cap),
-            ent=entries, ew=ent_w,
-            loc=location or "(no path)",
-            warn=f"  ⚠ {status}" if status else ""))
+        # Pad first, colorize second: ANSI codes are zero-width on screen but
+        # not to str formatting, so wrapping before padding shreds alignment.
+        stem = "└" if i == last else "├"
+        # A Volume that failed to load has no size worth charting — its "body"
+        # is the error message. Draw nothing rather than a bar measuring the
+        # complaint.
+        dead = str(status).startswith(("index missing", "misconfigured"))
+        lines.append(
+            f"  {c['dim']}{stem}{c['off']} {name:<{name_w}}  "
+            + (bar(0, 0, c=c) if dead else bar(chars, cap, c=c))
+            + f"  {c['dim']}{entries:>{ent_w}} entries{c['off']}"
+            + f"  {c['dim']}{location or '(no path)'}{c['off']}"
+            + (f"  {c['warn']}⚠ {status}{c['off']}" if status else ""))
     return "\n".join(lines)
 
 
-def bar(used, cap, width=10):
-    """Ten cells of how full a Volume is, or a flat rule when there is no cap."""
+def bar(used, cap, width=10, c=None):
+    """Ten cells of how full a Volume is, or a flat rule when there is no cap.
+
+    Color carries the same signal as the fill level rather than decorating it:
+    a Volume past the compaction threshold turns warning-colored, so the line
+    reads at a glance even before the percentage is parsed.
+    """
+    c = c or palette(False)
     if not cap:
-        return "─" * width + "   — "
+        return f"{c['dim']}{'─' * width}   — {c['off']}"
     frac = min(used / cap, 1.0)
     filled = int(frac * width + 0.5)
-    return "█" * filled + "░" * (width - filled) + f" {frac * 100:3.0f}%"
+    tone = c["warn"] if frac >= SOFT_RATIO else c["fill"]
+    return (f"{tone}{'█' * filled}{c['off']}{c['dim']}{'░' * (width - filled)}{c['off']}"
+            f" {tone}{frac * 100:3.0f}%{c['off']}")
 
 
 def main():
@@ -249,7 +268,7 @@ def main():
     # Every way this can come up empty gets said out loud. A freshly installed
     # Library that injects nothing looks identical to one that is working, and
     # a stray comma in the config would otherwise disable everything in silence.
-    ctx, report, note = "", [], ""
+    ctx, report, note, conf = "", [], "", None
     default_config = os.path.join(
         os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"),
         "autolibrary.json")
@@ -275,12 +294,18 @@ def main():
                 note = (f"AutoLibrary — config at {path} has no enabled Volumes, "
                         "so nothing was loaded.")
 
+    # Honor the NO_COLOR convention, and let a config opt out — the hook writes
+    # into someone else's renderer, which may print escapes rather than obey
+    # them. One key to turn it off beats a summary full of \x1b[2m.
+    use_color = (os.environ.get("NO_COLOR") is None
+                 and (conf or {}).get("color", True))
+
     if host == "codex":
         # Codex SessionStart accepts plain text on stdout as additionalContext.
         sys.stdout.write(ctx)
         # Its stdout is the context itself, so the summary goes to stderr —
         # visible in the host's log without contaminating the injection.
-        sys.stderr.write((format_summary(report, ctx) if report else note) + "\n")
+        sys.stderr.write((format_summary(report, ctx, use_color) if report else note) + "\n")
     else:
         out = {
             "hookSpecificOutput": {
@@ -290,7 +315,7 @@ def main():
         }
         # systemMessage is the user-facing channel: additionalContext goes to
         # the model and is never shown, so without this the load is invisible.
-        summary = format_summary(report, ctx) if report else note
+        summary = format_summary(report, ctx, use_color) if report else note
         if summary:
             out["systemMessage"] = summary
         print(json.dumps(out, ensure_ascii=False))
