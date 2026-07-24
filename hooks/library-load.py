@@ -49,6 +49,11 @@ import json
 import os
 import sys
 
+# Fraction of per_volume_char_cap at which a Volume is reported as needing
+# compaction. Derived rather than configured: one number to tune, and the
+# warning line always tracks whatever cap is in force.
+SOFT_RATIO = 0.8
+
 
 def find_config():
     """Locate the config from USER-controlled, machine-global locations only.
@@ -159,6 +164,13 @@ def build_context(conf):
         used += sep + len(block)
         if len(block) < len(tag) + 1 + len(body):
             status = status or "clipped (volume cap)"
+        elif per_cap and len(body) >= per_cap * SOFT_RATIO:
+            # Warn before the cliff. Truncation cuts the tail of the file, not
+            # the least useful entries, so by the time a Volume is clipped the
+            # damage is already arbitrary — say it while there is still room to
+            # compact the index deliberately.
+            status = status or (f"{len(body):,}/{per_cap:,} chars — compact this "
+                                "index before it gets truncated")
         report.append((name, location, entries, len(block), status))
     body_text = "\n\n".join(parts)
     if not body_text:
