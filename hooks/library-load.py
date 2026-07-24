@@ -213,22 +213,41 @@ def main():
     except Exception:
         pass
 
-    ctx, report = "", []
+    # Every way this can come up empty gets said out loud. A freshly installed
+    # Library that injects nothing looks identical to one that is working, and
+    # a stray comma in the config would otherwise disable everything in silence.
+    ctx, report, note = "", [], ""
+    default_config = os.path.join(
+        os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"),
+        "autolibrary.json")
     path = find_config()
-    if path:
+    if not path:
+        note = ("AutoLibrary — installed, but no config found, so nothing was "
+                f"loaded.\n  Create {default_config} to register your first "
+                "Volume:\n  {\"volumes\": [{\"name\": \"notes\", \"path\": "
+                "\"/absolute/path/to/notes\"}]}  → loads /absolute/path/to/notes/notes.md")
+    else:
         try:
             with open(path, encoding="utf-8") as f:
-                ctx, report = build_context(json.load(f))
-        except Exception:
-            ctx, report = "", []
+                conf = json.load(f)
+        except Exception as exc:
+            conf = None
+            note = f"AutoLibrary — config unreadable, nothing loaded: {path}\n  {exc}"
+        if conf is not None:
+            try:
+                ctx, report = build_context(conf)
+            except Exception as exc:
+                note = f"AutoLibrary — failed to build context from {path}\n  {exc}"
+            if not report:
+                note = (f"AutoLibrary — config at {path} has no enabled Volumes, "
+                        "so nothing was loaded.")
 
     if host == "codex":
         # Codex SessionStart accepts plain text on stdout as additionalContext.
         sys.stdout.write(ctx)
         # Its stdout is the context itself, so the summary goes to stderr —
         # visible in the host's log without contaminating the injection.
-        if report:
-            sys.stderr.write(format_summary(report, ctx) + "\n")
+        sys.stderr.write((format_summary(report, ctx) if report else note) + "\n")
     else:
         out = {
             "hookSpecificOutput": {
@@ -238,8 +257,9 @@ def main():
         }
         # systemMessage is the user-facing channel: additionalContext goes to
         # the model and is never shown, so without this the load is invisible.
-        if report:
-            out["systemMessage"] = format_summary(report, ctx)
+        summary = format_summary(report, ctx) if report else note
+        if summary:
+            out["systemMessage"] = summary
         print(json.dumps(out, ensure_ascii=False))
 
 
