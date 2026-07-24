@@ -50,6 +50,17 @@ your Volumes into any agent, the same way every session.
   *same* Library.
 - **Stay cheap.** The hook fires once per session and the index is prompt-cached; caps
   bound its size.
+- **Visible when it loads.** Injected context is invisible by design, which makes a broken
+  Volume look exactly like a working one. Every session start prints what actually loaded —
+  and names anything degraded on its own line:
+
+  ```
+  AutoLibrary — 4 volume(s), 7,482 chars (~1,870 tokens)
+    workspace      38 entries  /root/Desktop/projects
+    devices        16 entries  /root/devices
+    capabilities   27 entries  /root/capabilities
+    ideas           7 entries  /root/ideas  ⚠ index missing: /root/ideas/ideas.md
+  ```
 - **Time-aware.** A static index goes stale silently, and agents are time-blind. The
   loader stamps every injection with today's date and reminds the agent that entries are
   time-sensitive — so record `created` / `expires` / `last-verified`, and a machine past
@@ -95,7 +106,10 @@ Point AutoLibrary at your Volumes with a JSON config, at any of (first found win
 
 - Register a Volume by `name` + `path`. Its index file is `<path>/<name>.md` —
   named after the Volume (`skills` → `skills.md`), not a generic `INDEX.md`.
-- Flip `enabled` to load/unload per machine. Char caps keep the injection small.
+- `enabled` defaults to `true` — registering a Volume is the act of wanting it. Set it to
+  `false` to switch one off on this machine.
+- Char caps keep the injection small. They bound Volume content, truncation notices
+  included; the short preamble that states the Library's rules sits outside them.
 
 ## The model: Library ⊃ Volume ⊃ Entry
 

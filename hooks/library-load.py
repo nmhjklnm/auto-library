@@ -30,11 +30,16 @@ Config shape — register each Volume by name + its folder; the index loaded is
   {
     "per_volume_char_cap": 1500,   // optional, default 1500
     "total_char_cap": 8000,        // optional, default 8000
+    // Both caps bound Volume content. The fixed preamble that states the
+    // Library's rules sits outside them: capping it away would leave the
+    // Volumes injected with nothing telling the agent how to treat them.
     "volumes": [
-      {"name": "capability", "path": "/abs/capabilities", "enabled": true},
-      {"name": "workspace",  "path": "/abs/workspace",    "enabled": false}
+      {"name": "capability", "path": "/abs/capabilities"},                 // loads
+      {"name": "workspace",  "path": "/abs/workspace", "enabled": false}   // off here
     ]
   }
+"enabled" is optional and defaults to true — it exists to switch a Volume OFF on
+one machine, not to arm it.
 
 Fail-safe: any error (missing/broken config, unreadable index) degrades to an
 empty injection rather than breaking the session.
@@ -69,17 +74,41 @@ def find_config():
 
 
 def clip(text, cap):
-    if cap and len(text) > cap:
-        return text[:cap].rstrip() + f"\n…[truncated {len(text)}→{cap} chars]"
-    return text
+    """Trim text to at most `cap` characters, marker included.
+
+    The marker is part of the budget, not an extra on top of it: a cap that
+    silently overshoots by the size of its own truncation notice is not a cap.
+    """
+    if not cap or len(text) <= cap:
+        return text
+    marker = f"\n…[truncated {len(text)}→{cap} chars]"
+    if cap <= len(marker):
+        # Too small to even announce the truncation — an absurd cap, but it
+        # must still be obeyed rather than overrun by the notice about it.
+        return "…"[:cap]
+    return text[:cap - len(marker)].rstrip() + marker
 
 
 def build_context(conf):
+    """Return (context, report) — the injected text, and what went into it.
+
+    The report is what the user is shown: injection is otherwise invisible, and
+    a Library you cannot see loading is one you cannot trust is loading.
+    """
     per_cap = conf.get("per_volume_char_cap", 1500)
     total_cap = conf.get("total_char_cap", 8000)
-    parts, used = [], 0
+    # The "cap reached" notice is itself injected text, so reserve room for it
+    # up front rather than appending it past the limit it announces — including
+    # the blank line that joins it on.
+    notice = f"\n…[AutoLibrary total cap {total_cap} reached; remaining Volumes not loaded]"
+    notice_cost = len(notice) + 2
+    parts, used, report = [], 0, []
     for vol in conf.get("volumes", []):
-        if not vol.get("enabled"):
+        # Registering a Volume is the act of wanting it; "enabled" exists to
+        # turn one OFF per machine. Defaulting a missing key to disabled made
+        # the documented minimal form ({name, path}) load nothing, silently —
+        # the worst failure mode for a tool whose whole job is to speak up.
+        if not vol.get("enabled", True):
             continue
         name = vol.get("name", "?")
         # Index file is named after the Volume: <path>/<name>.md (not a generic
@@ -87,30 +116,53 @@ def build_context(conf):
         index_path = vol.get("index")
         if not index_path and vol.get("path"):
             index_path = os.path.join(vol["path"], name + ".md")
-        try:
-            with open(index_path, encoding="utf-8") as f:
-                body = f.read().rstrip()
-        except Exception:
-            body = f"# [{name}] Volume index missing: {index_path}"
+        if not index_path:
+            # Registered with neither "path" nor "index": the Volume has no
+            # location, so nothing loads and nothing new can be filed into it.
+            # Name the missing keys instead of leaking a bare None.
+            body = (f"# [{name}] Volume misconfigured: set \"path\" (its index "
+                    f"is then <path>/{name}.md), or an explicit \"index\".")
+            status = "misconfigured (no path/index)"
+        else:
+            try:
+                with open(index_path, encoding="utf-8") as f:
+                    body = f.read().rstrip()
+                status = ""
+            except Exception:
+                body = f"# [{name}] Volume index missing: {index_path}"
+                status = f"index missing: {index_path}"
         # The Volume's location is machine state, not prose: emit it from the
         # config so every Volume always carries its own path, whatever the
         # index author remembered to write. Without it an agent knows a Volume
         # exists but not where to put things — and scatters them elsewhere.
         location = vol.get("path") or (os.path.dirname(index_path) if index_path else "")
         tag = f"[Volume · {name} · {location}]" if location else f"[Volume · {name}]"
+        # One terse line per Entry is the index convention, so "- " lines are
+        # the honest entry count; it is a display figure, never a limit.
+        entries = sum(1 for ln in body.splitlines() if ln.startswith("- "))
         # Clip the body, never the tag.
         block = tag + "\n" + clip(body, per_cap)
-        if total_cap and used + len(block) > total_cap:
-            remaining = total_cap - used - len(tag) - 1
+        # Volumes are joined with a blank line; count it, or total_char_cap
+        # drifts by 2 chars per Volume and stops being the bound it claims.
+        sep = 2 if parts else 0
+        if total_cap and used + sep + len(block) + notice_cost > total_cap:
+            remaining = total_cap - used - sep - len(tag) - 1 - notice_cost
             if remaining > 0:
-                parts.append(tag + "\n" + clip(body, remaining))
-            parts.append(f"\n…[AutoLibrary total cap {total_cap} reached; remaining Volumes not loaded]")
+                block = tag + "\n" + clip(body, remaining)
+                parts.append(block)
+                report.append((name, location, entries, len(block), status or "clipped (total cap)"))
+            # Even the notice is subject to the cap it announces.
+            if used + (2 if parts else 0) + len(notice) <= total_cap:
+                parts.append(notice)
             break
         parts.append(block)
-        used += len(block)
+        used += sep + len(block)
+        if len(block) < len(tag) + 1 + len(body):
+            status = status or "clipped (volume cap)"
+        report.append((name, location, entries, len(block), status))
     body_text = "\n\n".join(parts)
     if not body_text:
-        return ""
+        return "", report
     # Two first-class Library principles, stated once per session:
     #  - a Volume is a contract (where its items live), not just a listing;
     #  - the Library is time-sensitive, and a static index goes stale silently.
@@ -128,7 +180,26 @@ def build_context(conf):
         "gone, a 'LIVE' date may have aged; re-verify before relying. When you "
         "add or change an entry, record the date."
     )
-    return header + "\n\n" + body_text
+    return header + "\n\n" + body_text, report
+
+
+def format_summary(report, ctx):
+    """A few lines the user actually sees: which Volumes loaded, from where.
+
+    Injection is silent by design, which makes a broken Volume indistinguishable
+    from a working one. Anything degraded is named on its own line rather than
+    folded into a total.
+    """
+    if not report:
+        return "AutoLibrary — no Volumes loaded (check your autolibrary.json)"
+    width = max(len(name) for name, *_ in report)
+    lines = [f"AutoLibrary — {len(report)} volume(s), {len(ctx):,} chars (~{len(ctx)//4:,} tokens)"]
+    for name, location, entries, chars, status in report:
+        line = f"  {name:<{width}}  {entries:>3} entries  {location or '(no path)'}"
+        if status:
+            line += f"  ⚠ {status}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def main():
@@ -142,25 +213,34 @@ def main():
     except Exception:
         pass
 
-    ctx = ""
+    ctx, report = "", []
     path = find_config()
     if path:
         try:
             with open(path, encoding="utf-8") as f:
-                ctx = build_context(json.load(f))
+                ctx, report = build_context(json.load(f))
         except Exception:
-            ctx = ""
+            ctx, report = "", []
 
     if host == "codex":
         # Codex SessionStart accepts plain text on stdout as additionalContext.
         sys.stdout.write(ctx)
+        # Its stdout is the context itself, so the summary goes to stderr —
+        # visible in the host's log without contaminating the injection.
+        if report:
+            sys.stderr.write(format_summary(report, ctx) + "\n")
     else:
-        print(json.dumps({
+        out = {
             "hookSpecificOutput": {
                 "hookEventName": "SessionStart",
                 "additionalContext": ctx,
             }
-        }, ensure_ascii=False))
+        }
+        # systemMessage is the user-facing channel: additionalContext goes to
+        # the model and is never shown, so without this the load is invisible.
+        if report:
+            out["systemMessage"] = format_summary(report, ctx)
+        print(json.dumps(out, ensure_ascii=False))
 
 
 if __name__ == "__main__":
