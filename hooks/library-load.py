@@ -8,10 +8,16 @@ context small; the full detail stays on disk in each Volume's Entries.
 
 Model: Library ⊃ Volume ⊃ Entry
   - Library      = the whole system (this plugin)
-  - Volume       = one knowledge domain (a folder), e.g. "capabilities"
-  - Entry        = one topic inside a Volume (a folder)
+  - Volume       = one module you register (a folder), e.g. "capabilities"
+  - Entry        = one item inside a Volume
   - <name>.md    = the compact, injected index of a Volume, named after it
                    (a Volume named "workspace" → workspace.md, not INDEX.md)
+  - charter      = the opening lines of <name>.md: what the Volume holds, where
+                   its items live, how they are named. A Volume is a contract,
+                   not just a listing — without it an agent reads the index and
+                   still creates the next item in the wrong place. The loader
+                   prepends each Volume's path from the config so the "where"
+                   is always present even if the charter forgets to say it.
 
 Config lookup order (first found wins), so different machines load different
 Volumes just by shipping a different config file — no code changes:
@@ -86,28 +92,41 @@ def build_context(conf):
                 body = f.read().rstrip()
         except Exception:
             body = f"# [{name}] Volume index missing: {index_path}"
-        body = clip(body, per_cap)
-        if total_cap and used + len(body) > total_cap:
-            remaining = total_cap - used
+        # The Volume's location is machine state, not prose: emit it from the
+        # config so every Volume always carries its own path, whatever the
+        # index author remembered to write. Without it an agent knows a Volume
+        # exists but not where to put things — and scatters them elsewhere.
+        location = vol.get("path") or (os.path.dirname(index_path) if index_path else "")
+        tag = f"[Volume · {name} · {location}]" if location else f"[Volume · {name}]"
+        # Clip the body, never the tag.
+        block = tag + "\n" + clip(body, per_cap)
+        if total_cap and used + len(block) > total_cap:
+            remaining = total_cap - used - len(tag) - 1
             if remaining > 0:
-                parts.append(clip(body, remaining))
+                parts.append(tag + "\n" + clip(body, remaining))
             parts.append(f"\n…[AutoLibrary total cap {total_cap} reached; remaining Volumes not loaded]")
             break
-        parts.append(body)
-        used += len(body)
+        parts.append(block)
+        used += len(block)
     body_text = "\n\n".join(parts)
     if not body_text:
         return ""
-    # Time-sensitivity is a first-class Library principle: anchor the agent in
-    # "now" and warn that a static index goes stale silently.
+    # Two first-class Library principles, stated once per session:
+    #  - a Volume is a contract (where its items live), not just a listing;
+    #  - the Library is time-sensitive, and a static index goes stale silently.
     today = datetime.date.today().isoformat()
     header = (
-        f"[AutoLibrary · today is {today}] This Library is time-sensitive. Each "
-        "entry notes when it was created/added and, where it applies, when it "
-        "expires or was last verified. Treat undated or long-stale entries as "
-        "possibly out of date — a machine past its expiry may be gone, a 'LIVE' "
-        "date may have aged; re-verify before relying. When you add or change an "
-        "entry, record the date."
+        f"[AutoLibrary · today is {today}] Each Volume below is tagged with its "
+        "name and its path on this machine, and opens with its charter — what "
+        "the Volume holds, where its items live, how they are named. The "
+        "charter is binding: create a new item inside that Volume's own path, "
+        "follow its naming rule, then add it to that Volume's index. Never put "
+        "a Volume's item somewhere else. The Library is also time-sensitive: "
+        "entries record when they were created/added and, where it applies, "
+        "when they expire or were last verified. Treat undated or long-stale "
+        "entries as possibly out of date — a machine past its expiry may be "
+        "gone, a 'LIVE' date may have aged; re-verify before relying. When you "
+        "add or change an entry, record the date."
     )
     return header + "\n\n" + body_text
 
