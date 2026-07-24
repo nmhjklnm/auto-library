@@ -1,0 +1,40 @@
+{
+  "width": 1200,
+  "fps": 30,
+  "duration": 5.0,
+  "colors": 256,
+  "dither": "none",
+  "clip_to_base_alpha": false,
+  "max_size_mb": 2.5,
+  "reveals": [
+    {
+      "id": "accent-rule",
+      "axis": "x",
+      "start": 0.35,
+      "end": 1.2,
+      "exit": {"start": 4.25, "end": 4.96}
+    }
+  ],
+  "layers": [
+    {
+      "id": "motion-card-index",
+      "enter": {"start": 0.45, "end": 1.35, "from": [60, -16]},
+      "exit": {"start": 4.2, "end": 4.96, "to": [20, -6]}
+    },
+    {
+      "id": "idx-line-1",
+      "enter": {"start": 1.35, "end": 1.95, "from": [16, 10]},
+      "exit": {"start": 4.2, "end": 4.9, "to": [6, 4]}
+    },
+    {
+      "id": "idx-line-2",
+      "enter": {"start": 1.55, "end": 2.15, "from": [16, 10]},
+      "exit": {"start": 4.2, "end": 4.9, "to": [6, 4]}
+    },
+    {
+      "id": "idx-line-3",
+      "enter": {"start": 1.75, "end": 2.35, "from": [16, 10]},
+      "exit": {"start": 4.2, "end": 4.9, "to": [6, 4]}
+    }
+  ]
+}
