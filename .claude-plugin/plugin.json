@@ -1,6 +1,6 @@
 {
   "name": "auto-library",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "The library layer every coding agent installs. Register anything as a Volume; a SessionStart hook loads each enabled Volume's compact index into every session. Skills is just one Volume of it. Toggle Volumes per machine — no settings.json editing.",
   "author": {
     "name": "nmhjklnm"
