@@ -155,7 +155,8 @@ def build_context(conf):
             if remaining > 0:
                 block = tag + "\n" + clip(body, remaining)
                 parts.append(block)
-                report.append((name, location, entries, len(block), status or "clipped (total cap)"))
+                report.append((name, location, entries, len(body), per_cap,
+                               status or "clipped (total cap)"))
             # Even the notice is subject to the cap it announces.
             if used + (2 if parts else 0) + len(notice) <= total_cap:
                 parts.append(notice)
@@ -171,7 +172,7 @@ def build_context(conf):
             # compact the index deliberately.
             status = status or (f"{len(body):,}/{per_cap:,} chars — compact this "
                                 "index before it gets truncated")
-        report.append((name, location, entries, len(block), status))
+        report.append((name, location, entries, len(body), per_cap, status))
     body_text = "\n\n".join(parts)
     if not body_text:
         return "", report
@@ -204,14 +205,34 @@ def format_summary(report, ctx):
     """
     if not report:
         return "AutoLibrary — no Volumes loaded (check your autolibrary.json)"
-    width = max(len(name) for name, *_ in report)
-    lines = [f"AutoLibrary — {len(report)} volume(s), {len(ctx):,} chars (~{len(ctx)//4:,} tokens)"]
-    for name, location, entries, chars, status in report:
-        line = f"  {name:<{width}}  {entries:>3} entries  {location or '(no path)'}"
-        if status:
-            line += f"  ⚠ {status}"
-        lines.append(line)
+    name_w = max(len(r[0]) for r in report)
+    ent_w = max(len(f"{r[2]}") for r in report)
+    lines = [f"AutoLibrary · {len(report)} volumes · ~{len(ctx)//4:,} tokens"]
+    last = len(report) - 1
+    for i, (name, location, entries, chars, cap, status) in enumerate(report):
+        # A bar makes headroom legible at a glance — the number that matters is
+        # not how big a Volume is but how close it is to being cut off.
+        lines.append("  {stem} {name:<{nw}}  {bar}  {ent:>{ew}} entries  {loc}{warn}".format(
+            stem="└" if i == last else "├",
+            name=name, nw=name_w,
+            # A Volume that failed to load has no size worth charting — its
+            # "body" is the error message. Draw nothing rather than a bar
+            # measuring the complaint.
+            bar=bar(0, 0) if str(status).startswith(("index missing", "misconfigured"))
+                else bar(chars, cap),
+            ent=entries, ew=ent_w,
+            loc=location or "(no path)",
+            warn=f"  ⚠ {status}" if status else ""))
     return "\n".join(lines)
+
+
+def bar(used, cap, width=10):
+    """Ten cells of how full a Volume is, or a flat rule when there is no cap."""
+    if not cap:
+        return "─" * width + "   — "
+    frac = min(used / cap, 1.0)
+    filled = int(frac * width + 0.5)
+    return "█" * filled + "░" * (width - filled) + f" {frac * 100:3.0f}%"
 
 
 def main():
