@@ -40,11 +40,27 @@ your Volumes into any agent, the same way every session.
   host-agnostic, so anything with a session-start hook can load the same Library.
 - **Register anything.** A Volume is just a folder with an index named after it. Skills,
   capabilities, context, references — AutoLibrary stays agnostic about the contents.
+- **A Volume is a contract, not a listing.** Each index opens with a **charter**: what the
+  Volume holds, where its items live, how they're named. The loader tags every Volume with
+  its path straight from your config and tells the agent the charter is binding — so the
+  *next* thing the agent creates lands inside the Volume, named its way, instead of
+  scattered next to it. An index that only says what exists gets read and then ignored.
 - **Grow without limit.** Add a Volume by adding one line; it costs nothing until enabled.
 - **Shape per machine.** Your laptop and your server load different Volumes from the
   *same* Library.
 - **Stay cheap.** The hook fires once per session and the index is prompt-cached; caps
   bound its size.
+- **Visible when it loads.** Injected context is invisible by design, which makes a broken
+  Volume look exactly like a working one. Every session start prints what actually loaded —
+  and names anything degraded on its own line:
+
+  ```
+  AutoLibrary — 4 volume(s), 7,482 chars (~1,870 tokens)
+    workspace      38 entries  /root/Desktop/projects
+    devices        16 entries  /root/devices
+    capabilities   27 entries  /root/capabilities
+    ideas           7 entries  /root/ideas  ⚠ index missing: /root/ideas/ideas.md
+  ```
 - **Time-aware.** A static index goes stale silently, and agents are time-blind. The
   loader stamps every injection with today's date and reminds the agent that entries are
   time-sensitive — so record `created` / `expires` / `last-verified`, and a machine past
@@ -90,7 +106,10 @@ Point AutoLibrary at your Volumes with a JSON config, at any of (first found win
 
 - Register a Volume by `name` + `path`. Its index file is `<path>/<name>.md` —
   named after the Volume (`skills` → `skills.md`), not a generic `INDEX.md`.
-- Flip `enabled` to load/unload per machine. Char caps keep the injection small.
+- `enabled` defaults to `true` — registering a Volume is the act of wanting it. Set it to
+  `false` to switch one off on this machine.
+- Char caps keep the injection small. They bound Volume content, truncation notices
+  included; the short preamble that states the Library's rules sits outside them.
 
 ## The model: Library ⊃ Volume ⊃ Entry
 
@@ -100,9 +119,13 @@ Point AutoLibrary at your Volumes with a JSON config, at any of (first found win
 | **Volume** | one module you register | a folder, e.g. `capabilities/` |
 | **Entry** | one item in a Volume | a folder, e.g. `capabilities/scholar-search/` |
 | **`<name>.md`** | the Volume's compact index, named after it | injected at session start |
+| **charter** | the index's opening lines — scope, where items live, naming | binding on the agent |
 
 Only each Volume's `<name>.md` (one terse line per Entry) enters the context; the
 Entries — full material, assets — stay on disk and are read on demand.
+
+Each injected Volume is prefixed with `[Volume · <name> · <path>]`, generated from your
+config — so the location is always present even if the charter forgets to state it.
 
 ## For agents (self-configuration)
 
@@ -111,9 +134,11 @@ Entries — full material, assets — stay on disk and are read on demand.
 > `$AUTOLIBRARY_CONFIG`, `$CLAUDE_CONFIG_DIR/autolibrary.json`, or
 > `~/.claude/autolibrary.json` — `volumes` is a list of `{name, path, enabled}`, and each
 > Volume's index is `<path>/<name>.md`. Add a Volume → add an entry; toggle `enabled` per
-> machine. The change takes effect on the next session; no restart needed. Entries are
-> time-sensitive: record when each was created/added and when it expires or was last
-> verified, so stale or expired entries are caught rather than trusted.
+> machine. The change takes effect on the next session; no restart needed. Open each index
+> with a charter — what the Volume holds, where its items live, how they're named — and
+> obey it: create new items inside that Volume's path, named its way, then add them to its
+> index. Entries are time-sensitive: record when each was created/added and when it expires
+> or was last verified, so stale or expired entries are caught rather than trusted.
 
 An agent can read that one paragraph and configure AutoLibrary with no other docs.
 

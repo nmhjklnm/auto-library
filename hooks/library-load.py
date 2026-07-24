@@ -8,10 +8,16 @@ context small; the full detail stays on disk in each Volume's Entries.
 
 Model: Library ⊃ Volume ⊃ Entry
   - Library      = the whole system (this plugin)
-  - Volume       = one knowledge domain (a folder), e.g. "capabilities"
-  - Entry        = one topic inside a Volume (a folder)
+  - Volume       = one module you register (a folder), e.g. "capabilities"
+  - Entry        = one item inside a Volume
   - <name>.md    = the compact, injected index of a Volume, named after it
                    (a Volume named "workspace" → workspace.md, not INDEX.md)
+  - charter      = the opening lines of <name>.md: what the Volume holds, where
+                   its items live, how they are named. A Volume is a contract,
+                   not just a listing — without it an agent reads the index and
+                   still creates the next item in the wrong place. The loader
+                   prepends each Volume's path from the config so the "where"
+                   is always present even if the charter forgets to say it.
 
 Config lookup order (first found wins), so different machines load different
 Volumes just by shipping a different config file — no code changes:
@@ -24,11 +30,16 @@ Config shape — register each Volume by name + its folder; the index loaded is
   {
     "per_volume_char_cap": 1500,   // optional, default 1500
     "total_char_cap": 8000,        // optional, default 8000
+    // Both caps bound Volume content. The fixed preamble that states the
+    // Library's rules sits outside them: capping it away would leave the
+    // Volumes injected with nothing telling the agent how to treat them.
     "volumes": [
-      {"name": "capability", "path": "/abs/capabilities", "enabled": true},
-      {"name": "workspace",  "path": "/abs/workspace",    "enabled": false}
+      {"name": "capability", "path": "/abs/capabilities"},                 // loads
+      {"name": "workspace",  "path": "/abs/workspace", "enabled": false}   // off here
     ]
   }
+"enabled" is optional and defaults to true — it exists to switch a Volume OFF on
+one machine, not to arm it.
 
 Fail-safe: any error (missing/broken config, unreadable index) degrades to an
 empty injection rather than breaking the session.
@@ -63,17 +74,41 @@ def find_config():
 
 
 def clip(text, cap):
-    if cap and len(text) > cap:
-        return text[:cap].rstrip() + f"\n…[truncated {len(text)}→{cap} chars]"
-    return text
+    """Trim text to at most `cap` characters, marker included.
+
+    The marker is part of the budget, not an extra on top of it: a cap that
+    silently overshoots by the size of its own truncation notice is not a cap.
+    """
+    if not cap or len(text) <= cap:
+        return text
+    marker = f"\n…[truncated {len(text)}→{cap} chars]"
+    if cap <= len(marker):
+        # Too small to even announce the truncation — an absurd cap, but it
+        # must still be obeyed rather than overrun by the notice about it.
+        return "…"[:cap]
+    return text[:cap - len(marker)].rstrip() + marker
 
 
 def build_context(conf):
+    """Return (context, report) — the injected text, and what went into it.
+
+    The report is what the user is shown: injection is otherwise invisible, and
+    a Library you cannot see loading is one you cannot trust is loading.
+    """
     per_cap = conf.get("per_volume_char_cap", 1500)
     total_cap = conf.get("total_char_cap", 8000)
-    parts, used = [], 0
+    # The "cap reached" notice is itself injected text, so reserve room for it
+    # up front rather than appending it past the limit it announces — including
+    # the blank line that joins it on.
+    notice = f"\n…[AutoLibrary total cap {total_cap} reached; remaining Volumes not loaded]"
+    notice_cost = len(notice) + 2
+    parts, used, report = [], 0, []
     for vol in conf.get("volumes", []):
-        if not vol.get("enabled"):
+        # Registering a Volume is the act of wanting it; "enabled" exists to
+        # turn one OFF per machine. Defaulting a missing key to disabled made
+        # the documented minimal form ({name, path}) load nothing, silently —
+        # the worst failure mode for a tool whose whole job is to speak up.
+        if not vol.get("enabled", True):
             continue
         name = vol.get("name", "?")
         # Index file is named after the Volume: <path>/<name>.md (not a generic
@@ -81,35 +116,90 @@ def build_context(conf):
         index_path = vol.get("index")
         if not index_path and vol.get("path"):
             index_path = os.path.join(vol["path"], name + ".md")
-        try:
-            with open(index_path, encoding="utf-8") as f:
-                body = f.read().rstrip()
-        except Exception:
-            body = f"# [{name}] Volume index missing: {index_path}"
-        body = clip(body, per_cap)
-        if total_cap and used + len(body) > total_cap:
-            remaining = total_cap - used
+        if not index_path:
+            # Registered with neither "path" nor "index": the Volume has no
+            # location, so nothing loads and nothing new can be filed into it.
+            # Name the missing keys instead of leaking a bare None.
+            body = (f"# [{name}] Volume misconfigured: set \"path\" (its index "
+                    f"is then <path>/{name}.md), or an explicit \"index\".")
+            status = "misconfigured (no path/index)"
+        else:
+            try:
+                with open(index_path, encoding="utf-8") as f:
+                    body = f.read().rstrip()
+                status = ""
+            except Exception:
+                body = f"# [{name}] Volume index missing: {index_path}"
+                status = f"index missing: {index_path}"
+        # The Volume's location is machine state, not prose: emit it from the
+        # config so every Volume always carries its own path, whatever the
+        # index author remembered to write. Without it an agent knows a Volume
+        # exists but not where to put things — and scatters them elsewhere.
+        location = vol.get("path") or (os.path.dirname(index_path) if index_path else "")
+        tag = f"[Volume · {name} · {location}]" if location else f"[Volume · {name}]"
+        # One terse line per Entry is the index convention, so "- " lines are
+        # the honest entry count; it is a display figure, never a limit.
+        entries = sum(1 for ln in body.splitlines() if ln.startswith("- "))
+        # Clip the body, never the tag.
+        block = tag + "\n" + clip(body, per_cap)
+        # Volumes are joined with a blank line; count it, or total_char_cap
+        # drifts by 2 chars per Volume and stops being the bound it claims.
+        sep = 2 if parts else 0
+        if total_cap and used + sep + len(block) + notice_cost > total_cap:
+            remaining = total_cap - used - sep - len(tag) - 1 - notice_cost
             if remaining > 0:
-                parts.append(clip(body, remaining))
-            parts.append(f"\n…[AutoLibrary total cap {total_cap} reached; remaining Volumes not loaded]")
+                block = tag + "\n" + clip(body, remaining)
+                parts.append(block)
+                report.append((name, location, entries, len(block), status or "clipped (total cap)"))
+            # Even the notice is subject to the cap it announces.
+            if used + (2 if parts else 0) + len(notice) <= total_cap:
+                parts.append(notice)
             break
-        parts.append(body)
-        used += len(body)
+        parts.append(block)
+        used += sep + len(block)
+        if len(block) < len(tag) + 1 + len(body):
+            status = status or "clipped (volume cap)"
+        report.append((name, location, entries, len(block), status))
     body_text = "\n\n".join(parts)
     if not body_text:
-        return ""
-    # Time-sensitivity is a first-class Library principle: anchor the agent in
-    # "now" and warn that a static index goes stale silently.
+        return "", report
+    # Two first-class Library principles, stated once per session:
+    #  - a Volume is a contract (where its items live), not just a listing;
+    #  - the Library is time-sensitive, and a static index goes stale silently.
     today = datetime.date.today().isoformat()
     header = (
-        f"[AutoLibrary · today is {today}] This Library is time-sensitive. Each "
-        "entry notes when it was created/added and, where it applies, when it "
-        "expires or was last verified. Treat undated or long-stale entries as "
-        "possibly out of date — a machine past its expiry may be gone, a 'LIVE' "
-        "date may have aged; re-verify before relying. When you add or change an "
-        "entry, record the date."
+        f"[AutoLibrary · today is {today}] Each Volume below is tagged with its "
+        "name and its path on this machine, and opens with its charter — what "
+        "the Volume holds, where its items live, how they are named. The "
+        "charter is binding: create a new item inside that Volume's own path, "
+        "follow its naming rule, then add it to that Volume's index. Never put "
+        "a Volume's item somewhere else. The Library is also time-sensitive: "
+        "entries record when they were created/added and, where it applies, "
+        "when they expire or were last verified. Treat undated or long-stale "
+        "entries as possibly out of date — a machine past its expiry may be "
+        "gone, a 'LIVE' date may have aged; re-verify before relying. When you "
+        "add or change an entry, record the date."
     )
-    return header + "\n\n" + body_text
+    return header + "\n\n" + body_text, report
+
+
+def format_summary(report, ctx):
+    """A few lines the user actually sees: which Volumes loaded, from where.
+
+    Injection is silent by design, which makes a broken Volume indistinguishable
+    from a working one. Anything degraded is named on its own line rather than
+    folded into a total.
+    """
+    if not report:
+        return "AutoLibrary — no Volumes loaded (check your autolibrary.json)"
+    width = max(len(name) for name, *_ in report)
+    lines = [f"AutoLibrary — {len(report)} volume(s), {len(ctx):,} chars (~{len(ctx)//4:,} tokens)"]
+    for name, location, entries, chars, status in report:
+        line = f"  {name:<{width}}  {entries:>3} entries  {location or '(no path)'}"
+        if status:
+            line += f"  ⚠ {status}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def main():
@@ -123,25 +213,54 @@ def main():
     except Exception:
         pass
 
-    ctx = ""
+    # Every way this can come up empty gets said out loud. A freshly installed
+    # Library that injects nothing looks identical to one that is working, and
+    # a stray comma in the config would otherwise disable everything in silence.
+    ctx, report, note = "", [], ""
+    default_config = os.path.join(
+        os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"),
+        "autolibrary.json")
     path = find_config()
-    if path:
+    if not path:
+        note = ("AutoLibrary — installed, but no config found, so nothing was "
+                f"loaded.\n  Create {default_config} to register your first "
+                "Volume:\n  {\"volumes\": [{\"name\": \"notes\", \"path\": "
+                "\"/absolute/path/to/notes\"}]}  → loads /absolute/path/to/notes/notes.md")
+    else:
         try:
             with open(path, encoding="utf-8") as f:
-                ctx = build_context(json.load(f))
-        except Exception:
-            ctx = ""
+                conf = json.load(f)
+        except Exception as exc:
+            conf = None
+            note = f"AutoLibrary — config unreadable, nothing loaded: {path}\n  {exc}"
+        if conf is not None:
+            try:
+                ctx, report = build_context(conf)
+            except Exception as exc:
+                note = f"AutoLibrary — failed to build context from {path}\n  {exc}"
+            if not report:
+                note = (f"AutoLibrary — config at {path} has no enabled Volumes, "
+                        "so nothing was loaded.")
 
     if host == "codex":
         # Codex SessionStart accepts plain text on stdout as additionalContext.
         sys.stdout.write(ctx)
+        # Its stdout is the context itself, so the summary goes to stderr —
+        # visible in the host's log without contaminating the injection.
+        sys.stderr.write((format_summary(report, ctx) if report else note) + "\n")
     else:
-        print(json.dumps({
+        out = {
             "hookSpecificOutput": {
                 "hookEventName": "SessionStart",
                 "additionalContext": ctx,
             }
-        }, ensure_ascii=False))
+        }
+        # systemMessage is the user-facing channel: additionalContext goes to
+        # the model and is never shown, so without this the load is invisible.
+        summary = format_summary(report, ctx) if report else note
+        if summary:
+            out["systemMessage"] = summary
+        print(json.dumps(out, ensure_ascii=False))
 
 
 if __name__ == "__main__":
