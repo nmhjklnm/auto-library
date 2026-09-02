@@ -108,6 +108,7 @@ Point AutoLibrary at your Volumes with a JSON config, at any of (first found win
   named after the Volume (`skills` → `skills.md`), not a generic `INDEX.md`.
 - `enabled` defaults to `true` — registering a Volume is the act of wanting it. Set it to
   `false` to switch one off on this machine.
+- **Host limit (Claude Code).** Any single hook output over **10,000 chars** is written to disk and the model only sees a 2,000-char preview — the Library silently vanishes. The bundled hook therefore registers **8 slots**, one Volume per slot (`library-load.py claude --slot N`); each injection is hard-capped at 10,000 chars and the status table says `clipped (host limit)` if a Volume hits it. More than 8 Volumes → add slots in `hooks/hooks.json`.
 - Char caps keep the injection small. They bound Volume content, truncation notices
   included; the short preamble that states the Library's rules sits outside them.
 

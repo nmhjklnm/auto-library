@@ -1,5 +1,5 @@
 {
-  "description": "AutoLibrary: inject each enabled Volume's compact index into the session at start.",
+  "description": "AutoLibrary: inject each enabled Volume's compact index into the session at start — one hook slot per Volume, because Claude Code persists any single hook output over 10,000 chars to disk and the model only sees a 2,000-char preview.",
   "hooks": {
     "SessionStart": [
       {
@@ -7,7 +7,42 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/library-load.py\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/library-load.py\" claude --slot 0",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/library-load.py\" claude --slot 1",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/library-load.py\" claude --slot 2",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/library-load.py\" claude --slot 3",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/library-load.py\" claude --slot 4",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/library-load.py\" claude --slot 5",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/library-load.py\" claude --slot 6",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/library-load.py\" claude --slot 7",
             "timeout": 10
           }
         ]

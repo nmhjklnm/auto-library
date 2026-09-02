@@ -19,6 +19,14 @@ Model: Library ⊃ Volume ⊃ Entry
                    prepends each Volume's path from the config so the "where"
                    is always present even if the charter forgets to say it.
 
+Host limit: Claude Code persists any single hook additionalContext longer than
+10,000 chars to disk and leaves the model a 2,000-char preview (CC 2.1.259,
+`tnr=1e4`, hard-coded) — a Library over that size silently loses everything
+past the first Volume. So hooks.json registers several *slots*, each running
+`library-load.py claude --slot N`: slot N injects only the N-th enabled Volume
+(slot 0 also carries the preamble and the status table), and every injection is
+hard-capped at HOST_INJECT_LIMIT. Slots beyond the Volume count emit nothing.
+
 Config lookup order (first found wins), so different machines load different
 Volumes just by shipping a different config file — no code changes:
   1. $AUTOLIBRARY_CONFIG
@@ -53,6 +61,14 @@ import sys
 # compaction. Derived rather than configured: one number to tune, and the
 # warning line always tracks whatever cap is in force.
 SOFT_RATIO = 0.8
+
+# Longest additionalContext Claude Code keeps inline. Past this the host writes
+# the text to a file and shows the model a 2,000-char preview — i.e. the Library
+# vanishes. Measured on 2.1.259 (`tnr=1e4`); no env/flag override exists.
+HOST_INJECT_LIMIT = 10000
+# Slots registered in hooks.json. More Volumes than this are still built, but
+# only the first SLOTS are injected — the summary says so.
+SLOTS = 8
 
 
 def find_config():
@@ -94,14 +110,37 @@ def clip(text, cap):
     return text[:cap - len(marker)].rstrip() + marker
 
 
-def build_context(conf):
-    """Return (context, report) — the injected text, and what went into it.
+def preamble():
+    """The Library's rules, stated once per session (slot 0 / single mode)."""
+    # Two first-class Library principles:
+    #  - a Volume is a contract (where its items live), not just a listing;
+    #  - the Library is time-sensitive, and a static index goes stale silently.
+    today = datetime.date.today().isoformat()
+    return (
+        f"[AutoLibrary · today is {today}] Each Volume below is tagged with its "
+        "name and its path on this machine, and opens with its charter — what "
+        "the Volume holds, where its items live, how they are named. The "
+        "charter is binding: create a new item inside that Volume's own path, "
+        "follow its naming rule, then add it to that Volume's index. Never put "
+        "a Volume's item somewhere else. The Library is also time-sensitive: "
+        "entries record when they were created/added and, where it applies, "
+        "when they expire or were last verified. Treat undated or long-stale "
+        "entries as possibly out of date — a machine past its expiry may be "
+        "gone, a 'LIVE' date may have aged; re-verify before relying. When you "
+        "add or change an entry, record the date."
+    )
+
+
+def build_blocks(conf):
+    """Return (header, blocks, report): the preamble, one injected block per
+    enabled Volume (in config order), and what went into each.
 
     The report is what the user is shown: injection is otherwise invisible, and
     a Library you cannot see loading is one you cannot trust is loading.
     """
     per_cap = conf.get("per_volume_char_cap", 1500)
     total_cap = conf.get("total_char_cap", 8000)
+    header = preamble()
     # The "cap reached" notice is itself injected text, so reserve room for it
     # up front rather than appending it past the limit it announces — including
     # the blank line that joins it on.
@@ -145,8 +184,11 @@ def build_context(conf):
         # One terse line per Entry is the index convention, so "- " lines are
         # the honest entry count; it is a display figure, never a limit.
         entries = sum(1 for ln in body.splitlines() if ln.startswith("- "))
-        # Clip the body, never the tag.
-        block = tag + "\n" + clip(body, per_cap)
+        # Clip the body, never the tag. The host limit is absolute: slot 0 also
+        # carries the preamble, so its Volume gets what is left after it.
+        host_room = HOST_INJECT_LIMIT - len(tag) - 1 - (len(header) + 2 if not parts else 0)
+        eff_cap = min(per_cap, host_room) if per_cap else host_room
+        block = tag + "\n" + clip(body, eff_cap)
         # Volumes are joined with a blank line; count it, or total_char_cap
         # drifts by 2 chars per Volume and stops being the bound it claims.
         sep = 2 if parts else 0
@@ -164,7 +206,8 @@ def build_context(conf):
         parts.append(block)
         used += sep + len(block)
         if len(block) < len(tag) + 1 + len(body):
-            status = status or "clipped (volume cap)"
+            status = status or ("clipped (host limit)" if eff_cap < per_cap
+                                else "clipped (volume cap)")
         elif per_cap and len(body) >= per_cap * SOFT_RATIO:
             # Warn before the cliff. Truncation cuts the tail of the file, not
             # the least useful entries, so by the time a Volume is clipped the
@@ -173,27 +216,30 @@ def build_context(conf):
             status = status or (f"{len(body):,}/{per_cap:,} chars — compact this "
                                 "index before it gets truncated")
         report.append((name, location, entries, len(body), per_cap, status))
-    body_text = "\n\n".join(parts)
-    if not body_text:
+    # Volumes past the registered slots are built (so the table is honest) but
+    # never injected — say it on their own line.
+    for i in range(SLOTS, len(parts)):
+        r = report[i]
+        report[i] = r[:5] + (f"not injected — only {SLOTS} hook slots, "
+                             "add slots in hooks.json",)
+    return header, parts, report
+
+
+def build_context(conf, limit=HOST_INJECT_LIMIT):
+    """Single-injection form (codex host / no --slot): everything in one string.
+
+    Only safe when the whole Library fits HOST_INJECT_LIMIT; otherwise clip so
+    the host keeps it inline rather than persisting it to disk unread.
+    """
+    header, parts, report = build_blocks(conf)
+    if not parts:
         return "", report
-    # Two first-class Library principles, stated once per session:
-    #  - a Volume is a contract (where its items live), not just a listing;
-    #  - the Library is time-sensitive, and a static index goes stale silently.
-    today = datetime.date.today().isoformat()
-    header = (
-        f"[AutoLibrary · today is {today}] Each Volume below is tagged with its "
-        "name and its path on this machine, and opens with its charter — what "
-        "the Volume holds, where its items live, how they are named. The "
-        "charter is binding: create a new item inside that Volume's own path, "
-        "follow its naming rule, then add it to that Volume's index. Never put "
-        "a Volume's item somewhere else. The Library is also time-sensitive: "
-        "entries record when they were created/added and, where it applies, "
-        "when they expire or were last verified. Treat undated or long-stale "
-        "entries as possibly out of date — a machine past its expiry may be "
-        "gone, a 'LIVE' date may have aged; re-verify before relying. When you "
-        "add or change an entry, record the date."
-    )
-    return header + "\n\n" + body_text, report
+    ctx = header + "\n\n" + "\n\n".join(parts)
+    if limit and len(ctx) > limit:
+        ctx = clip(ctx, limit)
+        report.append(("(all)", "", 0, len(ctx), limit,
+                       "single injection over host limit — use --slot hooks"))
+    return ctx, report
 
 
 def palette(enabled):
@@ -257,7 +303,13 @@ def bar(used, cap, width=10, c=None):
 def main():
     # Host mode: "claude" (default) emits the Claude Code hook JSON envelope;
     # "codex" emits plain text on stdout — both inject it as SessionStart context.
-    host = sys.argv[1].lower() if len(sys.argv) > 1 else "claude"
+    args = sys.argv[1:]
+    slot = None
+    if "--slot" in args:
+        i = args.index("--slot")
+        slot = int(args[i + 1])
+        del args[i:i + 2]
+    host = args[0].lower() if args else "claude"
 
     # Consume (and ignore) the hook's stdin payload.
     try:
@@ -268,7 +320,7 @@ def main():
     # Every way this can come up empty gets said out loud. A freshly installed
     # Library that injects nothing looks identical to one that is working, and
     # a stray comma in the config would otherwise disable everything in silence.
-    ctx, report, note, conf = "", [], "", None
+    ctx, report, note, conf, parts = "", [], "", None, []
     default_config = os.path.join(
         os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"),
         "autolibrary.json")
@@ -287,7 +339,17 @@ def main():
             note = f"AutoLibrary — config unreadable, nothing loaded: {path}\n  {exc}"
         if conf is not None:
             try:
-                ctx, report = build_context(conf)
+                if slot is None:
+                    # Codex takes plain stdout with no known persist-to-disk
+                    # cliff, so only the Claude host gets the hard limit.
+                    ctx, report = build_context(
+                        conf, HOST_INJECT_LIMIT if host == "claude" else None)
+                else:
+                    header, parts, report = build_blocks(conf)
+                    if slot < len(parts):
+                        ctx = (header + "\n\n" if slot == 0 else "") + parts[slot]
+                    else:
+                        ctx = ""
             except Exception as exc:
                 note = f"AutoLibrary — failed to build context from {path}\n  {exc}"
             if not report:
@@ -307,6 +369,14 @@ def main():
         # visible in the host's log without contaminating the injection.
         sys.stderr.write((format_summary(report, ctx, use_color) if report else note) + "\n")
     else:
+        if slot is not None and slot > 0:
+            # Secondary slot: inject its Volume (if any) and nothing else —
+            # slot 0 owns the user-facing table and every error note.
+            if ctx:
+                print(json.dumps({"hookSpecificOutput": {
+                    "hookEventName": "SessionStart", "additionalContext": ctx}},
+                    ensure_ascii=False))
+            return
         out = {
             "hookSpecificOutput": {
                 "hookEventName": "SessionStart",
@@ -315,7 +385,10 @@ def main():
         }
         # systemMessage is the user-facing channel: additionalContext goes to
         # the model and is never shown, so without this the load is invisible.
-        summary = format_summary(report, ctx, use_color) if report else note
+        # In slot mode the table covers the whole Library, so the token figure
+        # is computed over every block, not just slot 0's.
+        total = ctx if slot is None else "\n\n".join([ctx] + parts[1:SLOTS])
+        summary = format_summary(report, total, use_color) if report else note
         if summary:
             out["systemMessage"] = summary
         print(json.dumps(out, ensure_ascii=False))
